@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抵抗カラーコードトレーナー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f4f8;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+        canvas {
+            border: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        input[type="text"] {
+            border: 2px solid #cbd5e0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            width: calc(100% - 30px);
+            max-width: 300px;
+            margin-bottom: 15px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+        button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+            margin: 5px;
+            border: none;
+        }
+        button:hover {
+            background-color: #2563eb;
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .message-box {
+            min-height: 30px;
+            margin-top: 15px;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        .correct {
+            color: #10B981;
+        }
+        .incorrect {
+            color: #EF4444;
+        }
+        .circle {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background-color: #10B981;
+            border-radius: 50%;
+            animation: fadeOut 1s forwards;
+            margin-top: 10px;
+        }
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div class="container bg-white p-8 rounded-xl shadow-lg">
+        <h1 class="text-2xl font-bold mb-6 text-gray-800">抵抗カラーコードトレーナー</h1>
+
+        <canvas id="resistorCanvas" width="400" height="200"></canvas>
+
+        <div class="mb-4">
+            <input type="text" id="resistanceInput" placeholder="抵抗値を入力 (例: 100k, 2.2M)">
+        </div>
+
+        <div class="flex justify-center flex-wrap gap-2">
+            <button id="checkButton">答え合わせ</button>
+            <button id="generateButton">新しい問題</button>
+        </div>
+
+        <div id="messageBox" class="message-box"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('resistorCanvas');
+        const ctx = canvas.getContext('2d');
+        const resistanceInput = document.getElementById('resistanceInput');
+        const checkButton = document.getElementById('checkButton');
+        const generateButton = document.getElementById('generateButton');
+        const messageBox = document.getElementById('messageBox');
+
+        //カラーコードの設定
+        const colorMap = {
+            "黒": { hex: "#000000", digit: 0, multiplier: 1, tolerance: null, tempCoeff: null },
+            "茶": { hex: "#8B4513", digit: 1, multiplier: 10, tolerance: 0.01, tempCoeff: 100 }, 
+            "赤": { hex: "#FF0000", digit: 2, multiplier: 100, tolerance: 0.02, tempCoeff: 50 }, 
+            "橙": { hex: "#FFA500", digit: 3, multiplier: 1000, tolerance: null, tempCoeff: 15 },
+            "黄": { hex: "#FFFF00", digit: 4, multiplier: 10000, tolerance: null, tempCoeff: 25 },
+            "緑": { hex: "#008000", digit: 5, multiplier: 100000, tolerance: 0.005, tempCoeff: 20 },
+            "青": { hex: "#0000FF", digit: 6, multiplier: 1000000, tolerance: 0.0025, tempCoeff: 10 },
+            "紫": { hex: "#800080", digit: 7, multiplier: 10000000, tolerance: 0.001, tempCoeff: 5 },
+            "灰": { hex: "#808080", digit: 8, multiplier: null, tolerance: 0.0005, tempCoeff: 1 }, 
+            "白": { hex: "#FFFFFF", digit: 9, multiplier: null, tolerance: null, tempCoeff: null },
+            "金": { hex: "#FFD700", digit: null, multiplier: 0.1, tolerance: 0.05, tempCoeff: null },
+            "銀": { hex: "#C0C0C0", digit: null, multiplier: 0.01, tolerance: 0.10, tempCoeff: null }
+        };
+
+        // 各バンドに使える色のリスト
+        const digitColors = ["茶", "赤", "橙", "黄", "緑", "青", "紫", "灰", "白"]; //第一数字
+        const multiplierColors = ["黒", "茶", "赤", "橙", "黄", "緑", "青", "紫", "白", "金", "銀"];//第二数字
+        const toleranceColors = ["茶", "赤", "橙", "緑", "青", "紫", "金", "銀"];//乗数
+        const tempCoeffColors = ["茶", "赤", "橙", "黄", "緑", "青", "紫", "灰"];//抵抗値許容差
+
+        let currentResistorType; 
+        let currentBandColors = []; 
+        let correctResistanceValue;
+
+        // 抵抗器の画像の生成(脳筋)
+        const resistorImage5Band = new Image();
+        resistorImage5Band.src = 'image_38ef99.png';
+        resistorImage5Band.isFallback = false;
+        resistorImage5Band.onerror = () => {
+            console.error("Failed to load 5-band resistor image. Using fallback.");
+            resistorImage5Band.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+            resistorImage5Band.isFallback = true;
+
+            if (currentResistorType === 4 || currentResistorType === 5) {
+                drawResistor(resistorImage5Band, currentBandColors, currentResistorType === 4 ? bandPositions4 : bandPositions5);
+            }
+        };
+
+        const bandPositions5 = [
+            { x: 0.225, y: 0.25, width: 0.05, height: 0.5 },
+            { x: 0.325, y: 0.25, width: 0.05, height: 0.5 },
+            { x: 0.425, y: 0.25, width: 0.05, height: 0.5 }, 
+            { x: 0.525, y: 0.25, width: 0.05, height: 0.5 }, 
+            { x: 0.625, y: 0.25, width: 0.05, height: 0.5 }
+        ];
+
+        const bandPositions4 = [
+            { x: 0.225, y: 0.25, width: 0.05, height: 0.5 },
+            { x: 0.325, y: 0.25, width: 0.05, height: 0.5 },
+            { x: 0.425, y: 0.25, width: 0.05, height: 0.5 },
+            { x: 0.525, y: 0.25, width: 0.05, height: 0.5 }
+        ];
+
+        function drawResistor(image, colors, positions) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let imageDrawWidth, imageDrawHeight, imageStartX, imageStartY;
+            let resistorBodyDrawX, resistorBodyDrawY, resistorBodyDrawW, resistorBodyDrawH;
+
+            const bandAreaOffsetTopRatio = 0.25;
+            const bandAreaHeightRatio = 0.5;
+
+            if (image.complete && image.naturalWidth > 0 && !image.isFallback) {
+                const aspectRatio = image.naturalWidth / image.naturalHeight;
+                imageDrawWidth = canvas.width;
+                imageDrawHeight = canvas.width / aspectRatio;
+
+                if (imageDrawHeight > canvas.height) {
+                    imageDrawHeight = canvas.height;
+                    imageDrawWidth = canvas.height * aspectRatio;
+                }
+
+                imageStartX = (canvas.width - imageDrawWidth) / 2;
+                imageStartY = (canvas.height - imageDrawHeight) / 2;
+
+                ctx.drawImage(image, imageStartX, imageStartY, imageDrawWidth, imageDrawHeight);
+
+                resistorBodyDrawX = imageStartX; 
+                resistorBodyDrawY = imageStartY + imageDrawHeight * bandAreaOffsetTopRatio;
+                resistorBodyDrawW = imageDrawWidth;
+                resistorBodyDrawH = imageDrawHeight * bandAreaHeightRatio;
+
+            } else {
+
+                const conceptualImageAspectRatio = 2;
+                imageDrawWidth = canvas.width;
+                imageDrawHeight = canvas.width / conceptualImageAspectRatio;
+
+                if (imageDrawHeight > canvas.height) {
+                    imageDrawHeight = canvas.height;
+                    imageDrawWidth = canvas.height * conceptualImageAspectRatio;
+                }
+                imageStartX = (canvas.width - imageDrawWidth) / 2;
+                imageStartY = (canvas.height - imageDrawHeight) / 2;
+
+                resistorBodyDrawX = imageStartX;
+                resistorBodyDrawY = imageStartY + imageDrawHeight * bandAreaOffsetTopRatio;
+                resistorBodyDrawW = imageDrawWidth;
+                resistorBodyDrawH = imageDrawHeight * bandAreaHeightRatio;
+
+                ctx.fillStyle = "#F5DEB3";
+                const cornerRadius = Math.min(resistorBodyDrawW, resistorBodyDrawH) * 0.1;
+                ctx.beginPath();
+                ctx.moveTo(resistorBodyDrawX + cornerRadius, resistorBodyDrawY);
+                ctx.lineTo(resistorBodyDrawX + resistorBodyDrawW - cornerRadius, resistorBodyDrawY);
+                ctx.arcTo(resistorBodyDrawX + resistorBodyDrawW, resistorBodyDrawY, resistorBodyDrawX + resistorBodyDrawW, resistorBodyDrawY + cornerRadius, cornerRadius);
+                ctx.lineTo(resistorBodyDrawX + resistorBodyDrawW, resistorBodyDrawY + resistorBodyDrawH - cornerRadius);
+                ctx.arcTo(resistorBodyDrawX + resistorBodyDrawW, resistorBodyDrawY + resistorBodyDrawH, resistorBodyDrawX + resistorBodyDrawW - cornerRadius, resistorBodyDrawY + resistorBodyDrawH, cornerRadius);
+                ctx.lineTo(resistorBodyDrawX + cornerRadius, resistorBodyDrawY + resistorBodyDrawH);
+                ctx.arcTo(resistorBodyDrawX, resistorBodyDrawY + resistorBodyDrawH, resistorBodyDrawX, resistorBodyDrawY + resistorBodyDrawH - cornerRadius, cornerRadius);
+                ctx.lineTo(resistorBodyDrawX, resistorBodyDrawY + cornerRadius);
+                ctx.arcTo(resistorBodyDrawX, resistorBodyDrawY, resistorBodyDrawX + cornerRadius, resistorBodyDrawY, cornerRadius);
+                ctx.closePath();
+                ctx.fill();
+
+                const leadThickness = 5;
+                const leadLength = (canvas.width - resistorBodyDrawW) / 2 - 10;
+                const leadYPos = resistorBodyDrawY + resistorBodyDrawH / 2 - leadThickness / 2;
+
+                ctx.fillStyle = "#A9A9A9";
+                if (leadLength > 0) {
+                    ctx.fillRect(0, leadYPos, leadLength, leadThickness);
+                    ctx.fillRect(canvas.width - leadLength, leadYPos, leadLength, leadThickness);
+                }
+            }
+
+            colors.forEach((colorName, index) => {
+                if (index < positions.length) {
+                    const bandInfo = positions[index];
+                    if (bandInfo && colorMap[colorName]) {
+                        const bandX = resistorBodyDrawX + bandInfo.x * resistorBodyDrawW;
+                        const bandY = resistorBodyDrawY + (bandInfo.y - bandAreaOffsetTopRatio) / bandAreaHeightRatio * resistorBodyDrawH;
+                        const bandW = bandInfo.width * resistorBodyDrawW;
+                        const bandH = bandInfo.height / bandAreaHeightRatio * resistorBodyDrawH;
+
+                        ctx.fillStyle = colorMap[colorName].hex;
+                        ctx.fillRect(bandX, bandY, bandW, bandH);
+                    }
+                }
+            });
+
+            if (!image.complete && !image.isFallback) {
+                image.onload = () => drawResistor(image, colors, positions);
+            }
+        }
+
+        function calculateResistance(colors, numBands) {
+            let valueString = "";
+            let multiplier = 1;
+            let tolerance = null;
+
+            if (numBands === 4) {
+                // 4バンド: Digit1, Digit2, Multiplier, Tolerance
+                valueString += colorMap[colors[0]].digit; // Band 1 (Digit)
+                valueString += colorMap[colors[1]].digit; // Band 2 (Digit)
+                multiplier = colorMap[colors[2]].multiplier; // Band 3 (Multiplier)
+                tolerance = colorMap[colors[3]].tolerance; // Band 4 (Tolerance)
+            } else if (numBands === 5) {
+                // 5バンド: Digit1, Digit2, Digit3, Multiplier, Tolerance (ユーザーのx[3]は乗数なので、Digit3として扱う)
+                valueString += colorMap[colors[0]].digit; // Band 1 (Digit)
+                valueString += colorMap[colors[1]].digit; // Band 2 (Digit)
+                valueString += colorMap[colors[2]].digit; // Band 3 (Digit)
+                multiplier = colorMap[colors[3]].multiplier; // Band 4 (Multiplier)
+                tolerance = colorMap[colors[4]].tolerance; 
+            }
+
+            let resistance = parseFloat(valueString) * multiplier;
+            return resistance;
+        }
+
+        function generateNewResistor() {
+            messageBox.innerHTML = '';
+            resistanceInput.value = '';
+
+            currentResistorType = Math.random() < 0.5 ? 4 : 5;
+            currentBandColors = [];
+
+            if (currentResistorType === 4) {
+                // D-D-M-T
+                currentBandColors.push(digitColors[Math.floor(Math.random() * digitColors.length)]); //第一数字
+                currentBandColors.push(digitColors[Math.floor(Math.random() * digitColors.length)]); //第二数字
+                currentBandColors.push(multiplierColors[Math.floor(Math.random() * multiplierColors.length)]); //乗数
+                currentBandColors.push(toleranceColors[Math.floor(Math.random() * toleranceColors.length)]); //抵抗値許容差
+                drawResistor(resistorImage5Band, currentBandColors, bandPositions4); 
+            } else {
+                // D-D-D-M-T
+                currentBandColors.push(digitColors[Math.floor(Math.random() * digitColors.length)]); //第一数字
+                currentBandColors.push(digitColors[Math.floor(Math.random() * digitColors.length)]); //第二数字
+                currentBandColors.push(digitColors[Math.floor(Math.random() * digitColors.length)]); //第三数字
+                currentBandColors.push(multiplierColors[Math.floor(Math.random() * multiplierColors.length)]); //乗数
+                currentBandColors.push(toleranceColors[Math.floor(Math.random() * toleranceColors.length)]); //抵抗値許容差
+                drawResistor(resistorImage5Band, currentBandColors, bandPositions5);
+            }
+
+            correctResistanceValue = calculateResistance(currentBandColors, currentResistorType);
+            console.log("Correct Resistance:", correctResistanceValue);
+        }
+
+
+        function parseResistanceInput(input) {
+            input = input.trim().toLowerCase();
+            const match = input.match(/^(\d+(\.\d+)?)([kmg]?)$/);
+            if (!match) return null;
+
+            let value = parseFloat(match[1]);
+            const unit = match[3];
+
+            switch (unit) {
+                case 'k':
+                    value *= 1000;
+                    break;
+                case 'm':
+                    value *= 1000000;
+                    break;
+                case 'g':
+                    value *= 1000000000;
+                    break;
+            }
+            return value;
+        }
+
+        checkButton.addEventListener('click', () => {
+            const userInput = resistanceInput.value;
+            const parsedInput = parseResistanceInput(userInput);
+
+            if (parsedInput === null) {
+                messageBox.className = 'message-box incorrect';
+                messageBox.textContent = '無効な入力形式です。例: 100, 1k, 2.2M';
+                return;
+            }
+
+            const toleranceBand = currentResistorType === 4 ? currentBandColors[3] : currentBandColors[4];
+            const toleranceValue = colorMap[toleranceBand].tolerance;
+
+            let isCorrect = false;
+            if (toleranceValue !== null) {
+                const lowerBound = correctResistanceValue * (1 - toleranceValue);
+                const upperBound = correctResistanceValue * (1 + toleranceValue);
+                isCorrect = (parsedInput >= lowerBound && parsedInput <= upperBound);
+            } else {
+                isCorrect = (parsedInput === correctResistanceValue);
+            }
+
+            if (isCorrect) {
+                messageBox.className = 'message-box';
+                const circleDiv = document.createElement('div');
+                circleDiv.className = 'circle';
+                messageBox.appendChild(circleDiv);
+                setTimeout(() => {
+                    messageBox.innerHTML = '';
+                }, 1000);
+            } else {
+                messageBox.className = 'message-box incorrect';
+                messageBox.textContent = `不正解です。正解は ${formatResistance(correctResistanceValue)} です。`;
+            }
+        });
+
+
+        function formatResistance(value) {
+            if (value >= 1000000000) {
+                return (value / 1000000000).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) + 'GΩ';
+            } else if (value >= 1000000) {
+                return (value / 1000000).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) + 'MΩ';
+            } else if (value >= 1000) {
+                return (value / 1000).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) + 'kΩ';
+            }
+            return value.toLocaleString('ja-JP') + 'Ω';
+        }
+        generateButton.addEventListener('click', generateNewResistor);
+        window.onload = () => {
+            let imagesLoaded = 0;
+            const checkAllImagesLoaded = () => {
+                imagesLoaded++;
+                if (imagesLoaded === 1) {
+                    generateNewResistor();
+                }
+            };
+            resistorImage5Band.onload = checkAllImagesLoaded;
+            if (resistorImage5Band.complete) checkAllImagesLoaded();
+            window.addEventListener('resize', () => {
+                if (currentResistorType === 4) {
+                    drawResistor(resistorImage5Band, currentBandColors, bandPositions4);
+                } else if (currentResistorType === 5) {
+                    drawResistor(resistorImage5Band, currentBandColors, bandPositions5);
+                }
+            });
+        };
+    </script>
+</body>
+</html>
